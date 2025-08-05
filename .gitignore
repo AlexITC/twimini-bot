@@ -1,0 +1,7 @@
+.bsp/
+target/
+.scala-build/
+.idea/
+data/
+.envrc
+.DS_Store
