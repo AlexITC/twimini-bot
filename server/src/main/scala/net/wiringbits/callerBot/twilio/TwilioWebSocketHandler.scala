@@ -1,14 +1,19 @@
 package net.wiringbits.callerBot.twilio
 
 import cats.effect.*
-import cats.effect.std.Dispatcher
 import cats.implicits.*
+import com.alexitc.geminilive4s.GeminiService
+import com.alexitc.geminilive4s.models.{
+  GeminiFunction,
+  GeminiOutputChunk,
+  GeminiPromptSettings
+}
+import com.google.genai
 import com.twilio.rest.api.v2010.account.Call
 import fs2.Pipe
 import fs2.concurrent.SignallingRef
 import net.wiringbits.callerBot.audio.AudioConverter
-import net.wiringbits.callerBot.config.GeminiPromptSettings
-import net.wiringbits.callerBot.gemini.{GeminiOutputChunk, GeminiService}
+import net.wiringbits.callerBot.config.Config
 import org.http4s.websocket.WebSocketFrame
 import upickle.default.*
 
@@ -16,7 +21,7 @@ import java.io.ByteArrayInputStream
 import java.util.{Base64, UUID}
 import scala.concurrent.duration.*
 
-class TwilioWebSocketHandler(geminiService: GeminiService) {
+class TwilioWebSocketHandler(config: Config) {
 
   private val NoData = new Array[Byte](0)
 
@@ -26,7 +31,6 @@ class TwilioWebSocketHandler(geminiService: GeminiService) {
       promptSettings: GeminiPromptSettings
   ): Pipe[IO, WebSocketFrame, WebSocketFrame] = { incomingFrames =>
     for {
-      dispatcher <- fs2.Stream.resource(Dispatcher.sequential[IO])
       streamMetadataRef <- fs2.Stream.eval(
         SignallingRef[IO, Option[TwilioStreamMetadata]](None)
       )
@@ -38,15 +42,31 @@ class TwilioWebSocketHandler(geminiService: GeminiService) {
             .update()
         )
         .void
+      geminiService <- GeminiService.make(
+        config.geminiApiKey,
+        promptSettings,
+        List(makeGeminiFunction(endCall))
+      )
+
       frame <- incomingFrames
         .through(receiveFromTwilio(callId, streamMetadataRef))
         .through(transcodeTwilioToGemini)
-        .through(
-          geminiService.conversationPipe(dispatcher, promptSettings, endCall)
-        )
+        .through(geminiService.conversationPipe)
         .through(transcodeGeminiToTwilio)
         .through(sendToTwilio(streamMetadataRef))
     } yield frame
+  }
+
+  private def makeGeminiFunction(haltProcess: IO[Unit]): GeminiFunction = {
+    GeminiFunction(
+      declaration = genai.types.FunctionDeclaration
+        .builder()
+        .name("process_completed")
+        .description("Complete the process when the user say bye or similar")
+        .build(),
+      executor = _ =>
+        haltProcess.as(Map("response" -> "ok", "scheduling" -> "INTERRUPT"))
+    )
   }
 
   // Decode Twilio's JSON frames into raw audio bytes

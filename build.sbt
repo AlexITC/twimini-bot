@@ -12,13 +12,12 @@ lazy val server = project
     // fork the JVM process for the server to keep it running
     fork := true,
     libraryDependencies ++= Seq(
+      "com.alexitc.geminilive4s" %% "audio" % "0.2.0",
       "com.twilio.sdk" % "twilio" % "10.9.2",
-      "com.lihaoyi" %% "cask" % "0.10.2",
       "com.lihaoyi" %% "upickle" % "4.2.1",
       "com.lihaoyi" %% "scalatags" % "0.13.1",
       "ch.qos.logback" % "logback-classic" % "1.5.18",
       "org.slf4j" % "slf4j-api" % "2.0.17",
-      "com.google.genai" % "google-genai" % "1.10.0",
       "co.fs2" %% "fs2-core" % "3.12.0",
       "co.fs2" %% "fs2-io" % "3.12.0",
       "com.microsoft.onnxruntime" % "onnxruntime" % "1.22.0"

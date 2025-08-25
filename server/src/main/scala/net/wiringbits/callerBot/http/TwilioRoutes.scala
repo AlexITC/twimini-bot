@@ -2,7 +2,7 @@ package net.wiringbits.callerBot.http
 
 import cats.effect.*
 import com.twilio.security.RequestValidator
-import net.wiringbits.callerBot.config.{Config, GeminiPromptSettings}
+import net.wiringbits.callerBot.config.{Config, GeminiPrompts}
 import net.wiringbits.callerBot.twilio.TwilioWebSocketHandler
 import org.http4s.*
 import org.http4s.dsl.io.*
@@ -48,7 +48,7 @@ class TwilioRoutes(
               ) match
               case Some(true) => "es"
               case _          => "en"
-            val promptSettings = GeminiPromptSettings.randomPrompt(lang)
+            val promptSettings = GeminiPrompts.randomPrompt(lang)
 
             wsb.build(
               twilioWebSocketHandler
