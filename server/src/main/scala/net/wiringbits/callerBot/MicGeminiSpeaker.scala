@@ -1,37 +1,64 @@
 package net.wiringbits.callerBot
 
 import cats.effect.IO
-import cats.effect.std.Dispatcher
+import com.alexitc.geminilive4s.GeminiService
+import com.alexitc.geminilive4s.demo.{MicSource, SpeakerSink}
+import com.alexitc.geminilive4s.models.{
+  AudioStreamFormat,
+  GeminiFunction,
+  GeminiPromptSettings
+}
+import com.google.genai
 import fs2.Pipe
 import fs2.concurrent.SignallingRef
 import net.wiringbits.callerBot.audio.AudioFormat
-import net.wiringbits.callerBot.config.GeminiPromptSettings
-import net.wiringbits.callerBot.gemini.GeminiService
-import net.wiringbits.callerBot.io.{MicSourceProcess, SpeakerSink}
+import net.wiringbits.callerBot.config.Config
 import net.wiringbits.callerBot.vad.SileroVadDetector
 
-class MicGeminiSpeaker(gemini: GeminiService) {
+class MicGeminiSpeaker(config: Config) {
   def run(promptSettings: GeminiPromptSettings): IO[Unit] = {
-    val inputFormat = AudioFormat.GeminiInput // compatible with VAD
-    val micStream = MicSourceProcess.stream(inputFormat)
+    val audioFormat = AudioStreamFormat.GeminiOutput
 
-    val speaker = SpeakerSink.open(AudioFormat.GeminiOutput)
-    Dispatcher.sequential[IO].use { dispatcher =>
-      SignallingRef[IO, Boolean](false).flatMap { haltSignal =>
-        val end = IO.println("End call detected") >> haltSignal.set(true)
-        micStream
-          .through(cleanSilence(inputFormat))
-          .through(gemini.conversationPipe(dispatcher, promptSettings, end))
+    SignallingRef[IO, Boolean](false).flatMap { haltSignal =>
+      val end = IO.println("End call detected") >> haltSignal.set(true)
+      val functionDef = makeGeminiFunction(end)
+      val pipeline = for {
+        gemini <- GeminiService.make(
+          apiKey = config.geminiApiKey,
+          promptSettings = promptSettings,
+          functions = List(functionDef)
+        )
+        micStream = MicSource.stream(audioFormat)
+        speaker = SpeakerSink.open(audioFormat)
+
+        _ <- micStream
+          .through(gemini.conversationPipe) // mic to gemini
           .interruptWhen(haltSignal)
           .foreach { chunk =>
+            // gemini to speaker
             IO.blocking(speaker.write(chunk.chunk, 0, chunk.chunk.length)).void
           }
-          .compile
-          .drain
-      }
+      } yield ()
+
+      pipeline.compile.drain
     }
   }
 
+  def makeGeminiFunction(haltProcess: IO[Unit]): GeminiFunction = {
+    GeminiFunction(
+      declaration = genai.types.FunctionDeclaration
+        .builder()
+        .name("process_completed")
+        .description(
+          "Complete the process when the user say bye or similar"
+        )
+        .build(),
+      executor = _ =>
+        haltProcess.as(Map("response" -> "ok", "scheduling" -> "INTERRUPT"))
+    )
+  }
+
+  @scala.annotation.nowarn
   private def cleanSilence(
       format: AudioFormat
   ): Pipe[IO, Array[Byte], Array[Byte]] = {

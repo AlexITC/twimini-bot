@@ -3,8 +3,7 @@ package net.wiringbits.callerBot
 import cats.effect.*
 import cats.implicits.*
 import com.comcast.ip4s.{host, port}
-import net.wiringbits.callerBot.config.{Config, GeminiPromptSettings}
-import net.wiringbits.callerBot.gemini.GeminiService
+import net.wiringbits.callerBot.config.{Config, GeminiPrompts}
 import net.wiringbits.callerBot.http.{CallerRoutes, TwilioRoutes, WebRoutes}
 import net.wiringbits.callerBot.twilio.{TwilioService, TwilioWebSocketHandler}
 import org.http4s.ember.server.EmberServerBuilder
@@ -31,7 +30,7 @@ object Main extends IOApp.Simple {
     val twilioRoutes = new TwilioRoutes(
       config,
       res.callMapRef,
-      new TwilioWebSocketHandler(new GeminiService(config))
+      new TwilioWebSocketHandler(config)
     )
     val callerRoutes = new CallerRoutes(
       new TwilioService(config, res.callMapRef)
@@ -68,8 +67,8 @@ object Main extends IOApp.Simple {
         makeResources.flatMap(runWithResources)
       case Config.AppMode.LocalTest =>
         // stream mic to gemini to speaker
-        val promptSettings = GeminiPromptSettings.randomPrompt("es")
-        new MicGeminiSpeaker(new GeminiService(config)).run(promptSettings)
+        val promptSettings = GeminiPrompts.randomPrompt("es")
+        new MicGeminiSpeaker(config).run(promptSettings)
     }
   }
 }
